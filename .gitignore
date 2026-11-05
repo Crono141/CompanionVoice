@@ -1,0 +1,7 @@
+build/
+third_party/
+pack/out/
+*.wav
+*.mp3
+*.flac
+__pycache__/
