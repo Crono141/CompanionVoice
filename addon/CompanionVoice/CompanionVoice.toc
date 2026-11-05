@@ -1,0 +1,9 @@
+## Interface: 30300
+## Title: Companion Voice
+## Notes: Speaks party and whisper chat aloud, in a voice that fits each speaker's race. Needs the Living Voices client patch (LivingVoices.dll 0.5 or later).
+## Author: Crono141
+## Version: 0.1.0
+## SavedVariables: CompanionVoiceDB
+Voices.lua
+CompanionVoice.lua
+Options.lua

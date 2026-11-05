@@ -1,0 +1,2 @@
+-I../third_party/sherpa-onnx-v2.0.1-linux-x64-shared/include
+-std=c++17
