@@ -1,10 +1,11 @@
 -- Companion Voice: party and whisper chat spoken aloud, each speaker in a voice that fits their race and sex.
 -- The speech runs on this machine (LivingVoices.dll's CompanionVoiceEngine and its helper process). /say, yell and
--- channels are never spoken. On a realm with the server add-on (mod-companion-voice), every line a bot's language
--- model writes comes with a hidden label (its delivery: neutral, urgent, amused, weary), and the realm says which group
--- members are bots. There, a bot's line WITHOUT a label is one nobody wrote for speaking (playerbots' "Quest
+-- channels are never spoken. Every line is cloned from the speaker's neutral reference; the text's own punctuation
+-- moves the voice (the excited delivery references drifted too far, 2026-11-05). On a realm with the server add-on
+-- (mod-companion-voice), every line a bot's language model writes comes with a hidden label, and the realm says which
+-- group members are bots: a bot's line WITHOUT a label is one nobody wrote for speaking (playerbots' "Quest
 -- Incompleted: ..." status whispers) and stays silent; players are always spoken. On any other server the settings
--- decide (Options.lua: who is spoken, the lines never to speak, voices per person, speed and limits).
+-- decide (Options.lua: who is heard, the lines never to speak, voices per person, speed and limits).
 
 local ADDON_PREFIX = "CVOX"
 local MAX_QUEUE = 6          -- lines waiting at most; past that the oldest is dropped (a busy party, not a bot's two-part line)
@@ -73,6 +74,40 @@ local function clean(s)
   return s
 end
 
+-- what the voice reads: Living Voices' pronunciation guide (Pronounce.lua) -- whole-word respellings (Dalaran ->
+-- Dahlarawn; a possessive keeps its ending), '-shire' place names by the voice's accent, and the troll dialect for a
+-- troll's voice. Only the text sent to the engine; chat, labels and the skip list see the line as written.
+local function speakable(text, take)
+  local P = CompanionVoicePronounce
+  if not P then return text end
+  local race = take and take:match("^r%d_(%a+)_%a_%a$")
+  text = text:gsub("\226\128\153", "'")                          -- a typographic apostrophe, as the guide keys are plain
+  text = text:gsub("[%a][%w']*", function(w)
+    local r = P.words[w]
+    if r then return r end
+    local base, tail = w:match("^(.-)('%a*)$")                  -- Dalaran's -> Dahlarawn's
+    if base and P.words[base] then return P.words[base] .. tail end
+  end)
+  text = text:gsub("[Xx]%-52", function(w) return P.words[w] end)
+  for suf, r in pairs(P.suffix) do
+    local said = (race and P.british[race]) and r.british or r.neutral
+    text = text:gsub("(%u%l+)" .. suf .. "(%f[%A])", "%1" .. said .. "%2")
+    text = text:gsub("(%u%l+)" .. suf .. "$", "%1" .. said)
+  end
+  local D = race and P.dialect[race]
+  if D then
+    text = text:gsub("[%a]+", function(w)
+      local r = D.words[w] or D.words[w:lower()]
+      if r then return w:sub(1, 1):match("%u") and (r:sub(1, 1):upper() .. r:sub(2)) or r end
+      if D.ing and #w >= 6 and w:match("[^aeiouAEIOU]ing$") then return w:sub(1, -4) .. "in'" end   -- as the guide: 6+ letters
+    end)
+  end
+  return text
+end
+CV.speakable = speakable
+
+CV.clean = clean
+
 -- the player's own list of lines never to speak (Options: "Lines not spoken")
 local function skipped(text)
   local t = text:lower()
@@ -134,10 +169,8 @@ local function voiceFor(name, race, sex)
 end
 CV.voiceFor = voiceFor
 
-local function refFor(take, variant, delivery)
-  local have = CompanionVoiceVoices.deliveries[take] or {}
-  if not have[delivery] then delivery = "neutral" end
-  return VOICE_DIR .. take .. "_" .. variant .. "_" .. delivery .. ".mp3"
+local function refFor(take, variant)
+  return VOICE_DIR .. take .. "_" .. variant .. "_neutral.mp3"
 end
 
 local function realmDB()
@@ -175,7 +208,7 @@ end
 -- a line in a chosen voice, now (Options' preview and /cvoice test)
 function CV.preview(take, variant, text)
   if not engine then return say("the client patch is missing (LivingVoices.dll 0.5 or later).") end
-  table.insert(queue, 1, { ref = refFor(take, variant, "neutral"), text = text, t = GetTime() })
+  table.insert(queue, 1, { ref = refFor(take, variant), text = text, t = GetTime() })
 end
 
 function CV.stop()
@@ -211,8 +244,8 @@ local function onUpdate(self, dt)
   if not item or muted() then return end
   if item.name and db.quietInCombat and UnitAffectingCombat("player") then return end
   -- the label is looked up now: on the realm it may have come before the line, or just after it
-  local delivery = item.name and takeLabel(item.name, item.raw)
-  if item.name and not delivery then
+  local labelled = item.name and takeLabel(item.name, item.raw)
+  if item.name and not labelled then
     local r = realmDB()
     if r.labels and r.bots[item.name] then                -- a bot's line nobody labelled: wait briefly, then skip
       if now - item.t < LABEL_WAIT then table.insert(queue, 1, item) end
@@ -220,9 +253,9 @@ local function onUpdate(self, dt)
     end
     if db.companionsOnly then return end
   end
-  local ref = item.ref or refFor(item.take, item.variant, delivery or "neutral")
+  local ref = item.ref or refFor(item.take, item.variant)
   local master = tonumber(GetCVar("Sound_MasterVolume")) or 1
-  local ok, err = engine.Speak(ref, item.text, master, db.speed)
+  local ok, err = engine.Speak(ref, speakable(item.text, item.take), master, db.speed)
   if not ok then warnOnce("speak", "cannot speak: " .. tostring(err)) end
 end
 

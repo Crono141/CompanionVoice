@@ -55,8 +55,7 @@ function GetFriendInfo(i) return "Kael" end
 function IsInGuild() return nil end
 function GuildRoster() end
 function UnitAffectingCombat() return nil end
-dofile("../CompanionVoice/Voices.lua"); dofile("../CompanionVoice/CompanionVoice.lua"); dofile("../CompanionVoice/Options.lua")
-CompanionVoiceVoices.deliveries["r3_nightelf_f_d"] = { neutral = true, urgent = true }   -- as if the pack had it
+dofile("../CompanionVoice/Voices.lua"); dofile("../CompanionVoice/Pronounce.lua"); dofile("../CompanionVoice/CompanionVoice.lua"); dofile("../CompanionVoice/Options.lua")
 local function ev(e, ...) frame.scripts.OnEvent(frame, e, ...) end
 local function tick() frame.scripts.OnUpdate(frame, 0.2) end
 ev("PLAYER_LOGIN")
@@ -79,7 +78,7 @@ for i, s in ipairs(spoken) do print(i, s.ref, ("%q"):format(s.text), s.vol) end
 assert(#spoken == 2, "expected two lines spoken")
 assert(spoken[1].text == "Careful, Linen Cloth is here!", spoken[1].text)
 assert(spoken[1].ref:find("orc_m"), spoken[1].ref)
-assert(spoken[2].ref:find("nightelf_f") and spoken[2].ref:find("_urgent"), "the label should pick urgent")
+assert(spoken[2].ref:find("nightelf_f") and spoken[2].ref:find("_neutral"), "every line uses the neutral reference")
 SlashCmdList.COMPANIONVOICE("status"); SlashCmdList.COMPANIONVOICE("test")
 -- a bot's line in two quick parts, the first long: the second waits behind it and is still spoken
 speaking = nil; tick(); spoken = {}; speaking = nil   -- (the /cvoice test line queued above goes first)
@@ -134,4 +133,13 @@ CompanionVoiceOptionsLines.scripts.OnHide()
 assert(#db.skip == #CompanionVoice.DEFAULT_SKIP, "the skip list did not survive the editor: " .. #db.skip)
 assert(CompanionVoice.takeLabel("r3_nightelf_f_a") == "Night elf woman A", CompanionVoice.takeLabel("r3_nightelf_f_a"))
 SlashCmdList.COMPANIONVOICE("options")
+-- the pronunciation guide: respellings (a possessive keeps its ending), -shire by accent, the troll dialect
+local sp = CompanionVoice.speakable
+local h = sp("Meet me in Goldshire, past Dalaran's gate. The Defias are coming!", "r2_human_m_a")
+assert(h == "Meet me in Goldsher, past Dahlarawn's gate. The Defy us are coming!", h)
+local n = sp("Meet me in Goldshire.", "r2_orc_m_a")
+assert(n == "Meet me in Goldshyre.", n)
+local t = sp("The thing is, they are bringing them to Dalaran with nothing.", "r2_troll_m_a")
+assert(t == "De thing is, dey are bringin' dem to Dahlarawn wit nothin'.", t)
+assert(sp("Ahn'Qiraj", "r2_human_f_b") == "On keerahzh", sp("Ahn'Qiraj", "r2_human_f_b"))
 print("sim ok")

@@ -2,8 +2,8 @@
 
 Party and whisper chat is spoken aloud on the player's own machine. Whispers and party lines from bots, from
 stock playerbots and from real players are all voiced. /say, yell and general channels are never voiced.
-The mod is independent of every other mod. It shares no code, tables or addon prefixes with the specter mods or the
-Companions addon. Without the server add-on it still works on any 3.3.5 server.
+The mod is independent of every other mod. It shares no code, tables or addon prefixes with the realm mods it was
+built beside. Without the server add-on it still works on any 3.3.5 server.
 
 ## Pieces
 
@@ -31,7 +31,12 @@ time would hurt the frame rate. So it is a separate process.
   (`--silence 1.0`). One sentence at a time (0.2 pause) reset prosody at every full stop and sounded rushed; the whole
   line matched the Python trials' pace (2.79 vs 2.77 words/s), first audio as quick, first words heard right 34/50 vs
   29/50 (faster-whisper, 2026-11-05). The full-precision model heard 36/50 but doubled the first-audio wait and the
-  download (472 MB): int8 stays.
+  download (472 MB).
+- Precision, decided 2026-11-05 by blind listening (20 lines, 4 voices, fixed encoder, same seed): the shipped split is
+  Kyutai's own, only the language model (lm_main) int8, the flow net and audio decoder full precision. Best picks:
+  full 6, split 3, all-int8 5, can't tell 6; the all-int8 take was most often the one that sounded clearly off, and
+  the split and full were hard to tell apart. Model files 240 MB, first audio median 0.79 s (all-int8 194 MB, 0.70 s;
+  full 472 MB, 1.18 s). No measurable 2-5 kHz roughness in any of them; the difference is in delivery.
 - Speed: sherpa's speed setting moves Pocket TTS only 2-4%. Pocket speaks at its reference's pace, so a speed other
   than 1 stretches the REFERENCE in time, pitch kept (WSOLA, cached per voice and speed): 0.8 -> 3.09, 1.0 -> 3.49,
   1.25 -> 4.33 words/s, clarity unchanged. The output is never processed.

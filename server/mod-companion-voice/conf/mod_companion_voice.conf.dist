@@ -5,18 +5,18 @@
 ########################################
 #
 #   CompanionVoice.Enable
-#       Send each party or whisper line's speech style (urgent, amused, weary) to the players who will hear it,
-#       as a hidden addon message, so the CompanionVoice add-on speaks it that way. Lines come from the LLM chat
-#       bridge, which stores the style with the line (llm_chatter_messages.speech_style); without that column
-#       this module logs once and does nothing. Players without the add-on never see these messages.
+#       Tell players' CompanionVoice add-ons which party and whisper lines a bot's language model wrote (from the LLM
+#       chat bridge's llm_chatter_messages), and which group members are bots, so a bot's own status text
+#       ("Quest Incompleted: ...") is not spoken aloud. Hidden addon messages; players without the add-on never see
+#       them. Without the bridge's table this module logs once and does nothing.
 #       Default: 1
 #
 CompanionVoice.Enable = 1
 
 #
 #   CompanionVoice.PollMs
-#       How often new lines are looked for, in milliseconds. A style is sent when its line is queued, which is
-#       usually before the bot says it; the add-on keeps a style for 60 seconds waiting for its line.
+#       How often new lines are looked for, in milliseconds. A label is sent when its line is queued, which is
+#       usually before the bot says it; the add-on keeps a label for 60 seconds waiting for its line.
 #       Default: 500
 #
 CompanionVoice.PollMs = 500

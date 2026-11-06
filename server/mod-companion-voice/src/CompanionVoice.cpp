@@ -1,15 +1,16 @@
-// mod-companion-voice: the realm side of the Companion Voice mod (~/Projects/CompanionVoice). Two hidden addon
-// messages (prefix "CVOX") to real players' clients:
-//   "<style>\t<FNV-1a 32 of the line's text>", from the bot, for every party or whisper line the LLM chat bridge
-//       queues (llm_chatter_messages): how it sounds spoken aloud (speech_style: urgent, amused, weary; NULL is
-//       neutral). The add-on speaks a line in its style; and a bot's line WITHOUT a label is one the model did not
-//       write (playerbots' "Quest Incomplete: ..." status whispers), so it is not spoken.
+// mod-companion-voice: the realm side of the Companion Voice mod (github.com/Crono141/CompanionVoice), optional: without it
+// the add-on's own skip list keeps stock playerbots' status text quiet. Two hidden addon messages (prefix "CVOX") to
+// real players' clients:
+//   "neutral\t<FNV-1a 32 of the line's text>", from the bot, for every party or whisper line the LLM chat bridge
+//       queues (llm_chatter_messages): a line a bot's language model wrote for saying. A bot's line WITHOUT one is
+//       playerbots' own status text ("Quest Incompleted: ..."), and the add-on leaves it silent. ("neutral" is the
+//       wire format's delivery field; every line is spoken from the neutral voice now.)
 //   "bots\t<Name,Name,...>", from the player to themselves, the bots in their group: sent when it changes and every
 //       minute, so the add-on knows whose unlabelled lines to leave silent.
 // Nothing else reads these.
 //
-// It only reads the bridge's table and shares nothing with any other module. Without the column (the bridge's
-// characters update 20261105_speech_style not applied) it logs once and stays idle.
+// It only reads the bridge's table and shares nothing with any other module. Without that table it logs once and
+// stays idle.
 
 #include "Chat.h"
 #include "Config.h"
@@ -36,7 +37,7 @@ namespace
 
     uint32 g_lastId = 0;        // the newest line already handled
     bool g_started = false;     // g_lastId read: lines queued before the server started are not labelled
-    bool g_idle = false;        // no speech_style column: nothing to do until the next config reload
+    bool g_idle = false;        // no bridge table: nothing to do until the next config reload
     uint32 g_timer = 0;
 
     uint32 Fnv1a(std::string const& s)    // the add-on hashes the chat line the same way
@@ -61,18 +62,18 @@ namespace
     bool Start()
     {
         QueryResult has = CharacterDatabase.Query(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
-            "AND TABLE_NAME = 'llm_chatter_messages' AND COLUMN_NAME = 'speech_style'");
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+            "AND TABLE_NAME = 'llm_chatter_messages'");
         if (!has || !has->Fetch()[0].Get<uint64>())
         {
-            LOG_INFO("module", "mod-companion-voice: llm_chatter_messages has no speech_style column; idle");
+            LOG_INFO("module", "mod-companion-voice: no llm_chatter_messages table (no LLM chat bridge); idle");
             g_idle = true;
             return false;
         }
         QueryResult top = CharacterDatabase.Query("SELECT COALESCE(MAX(id), 0) FROM llm_chatter_messages");
         g_lastId = top ? top->Fetch()[0].Get<uint32>() : 0;
         g_started = true;
-        LOG_INFO("module", "mod-companion-voice: sending speech styles from line {} on", g_lastId + 1);
+        LOG_INFO("module", "mod-companion-voice: labelling bot lines from line {} on", g_lastId + 1);
         return true;
     }
 
@@ -81,7 +82,7 @@ namespace
         if (!g_started && !Start())
             return;
         QueryResult r = CharacterDatabase.Query(
-            "SELECT id, bot_guid, channel, player_guid, message, speech_style FROM llm_chatter_messages "
+            "SELECT id, bot_guid, channel, player_guid, message FROM llm_chatter_messages "
             "WHERE id > {} AND channel IN ('party', 'whisper') ORDER BY id LIMIT 100",
             g_lastId);
         if (!r)
@@ -91,13 +92,10 @@ namespace
             Field* f = r->Fetch();
             g_lastId = f[0].Get<uint32>();
             std::string channel = f[2].Get<std::string>(), message = f[4].Get<std::string>();
-            std::string style = f[5].IsNull() ? "neutral" : f[5].Get<std::string>();
-            if (style != "urgent" && style != "amused" && style != "weary")
-                style = "neutral";
             Player* bot = ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(f[1].Get<uint32>()));
             if (!bot)
                 continue;
-            std::string wire = std::string(ADDON_PREFIX) + "\t" + style + "\t" + std::to_string(Fnv1a(message));
+            std::string wire = std::string(ADDON_PREFIX) + "\tneutral\t" + std::to_string(Fnv1a(message));
             if (channel == "whisper")
             {
                 Player* to = ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(f[3].Get<uint32>()));

@@ -1,0 +1,18 @@
+COMPANION VOICE -- what is whose
+================================
+The CompanionVoice add-on, the speech helper (engine\cvoice.exe) and the voice pack: written and designed for this
+project. Source: https://github.com/Crono141/CompanionVoice, GPL-3.0 (https://www.gnu.org/licenses/gpl-3.0.html).
+The voices are designed from text descriptions (Qwen3-TTS VoiceDesign, IndexTTS-2); none is cloned from a real
+person.
+The speech model and libraries the helper uses are listed in THIRD_PARTY.txt (Pocket TTS by Kyutai, CC BY 4.0;
+sherpa-onnx, Apache 2.0; ONNX Runtime, MIT; miniaudio, public domain / MIT-0).
+
+LivingVoices.dll (the engine host) and LivingVoicesPatcher.exe / patch_wowexe.py: from Living Voices, the quest
+voice-over by the same author. Source: https://github.com/Crono141/LivingVoices (client/), GPL-3.0.
+  The DLL uses miniaudio by David Reid (public domain or MIT No Attribution) -- https://miniaud.io -- and StormLib by
+  Ladislav Zezula (MIT) -- https://github.com/ladislav-zezula/StormLib -- which bundles zlib (zlib licence), bzip2
+  (BSD-style), LibTomCrypt and LibTomMath (public domain) and LZMA (public domain).
+  The patcher applies the Wow.exe patch from awesome_wotlk by FrostAtom (https://github.com/FrostAtom/awesome_wotlk),
+  GPL-3.0, with the engine's DLL name in place of theirs.
+
+World of Warcraft: (c) Blizzard Entertainment. Nothing of the game's is included.

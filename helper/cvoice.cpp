@@ -135,6 +135,45 @@ static std::vector<float> stretch(const std::vector<float> &in, float tempo)
     return out;
 }
 
+// ---------------------------------------------------------------- the end of a reference
+// Pocket TTS was trained on voice prompts that end inside the short pause between two words. A prompt that stops on
+// speech makes the model carry that utterance on into the new line (a wrong or clipped first word: "airful" for
+// "Careful", at every sentence, since sherpa restarts from the prompt per sentence); one that ends on a long silence
+// delays the onset. Kyutai's own runtime fixes every prompt with end_on_pause (pocket_tts/data/audio_utils.py), and
+// sherpa's port does not, so it is done here, the same way: trailing 20 ms frames more than 35 dB below the loudest
+// cut, the last 20 ms faded out, exactly 80 ms of silence appended (2026-11-05). A clip over MAX_REF_S is first cut at
+// its last pause before that, so it never ends mid-word either.
+// 10 s: Kyutai's own voices run about that long, sherpa's default cap is 10 s, and our variable-length encoder export
+// (tools/export_encoder.py) fails past about 11 s (a fixed-size piece of the Mimi encoder's attention).
+static const float MAX_REF_S = 10.0f;
+static std::vector<float> end_on_pause(std::vector<float> w)
+{
+    const size_t frame = RATE / 50;                              // 20 ms
+    auto db_of = [&](size_t f) {
+        double e = 0; for (size_t i = f * frame; i < (f + 1) * frame; i++) e += (double)w[i] * w[i];
+        return 10.0 * log10(e / frame + 1e-24);
+    };
+    size_t n = w.size() / frame;
+    if (n < 10) return w;
+    std::vector<double> db(n); double top = -1e9;
+    for (size_t f = 0; f < n; f++) { db[f] = db_of(f); if (db[f] > top) top = db[f]; }
+    size_t limit = (size_t)(MAX_REF_S * RATE / frame);
+    if (n > limit) {                                             // too long: end at the last pause (150 ms+) before the limit
+        size_t cut = limit, quiet = 0;
+        for (size_t f = limit; f > 50; f--) {                    // never shorter than 1 s
+            if (db[f] < top - 35) { if (++quiet >= 8) { cut = f + quiet; break; } } else quiet = 0;
+        }
+        n = std::min(n, cut);
+    }
+    size_t last = 0;
+    for (size_t f = 0; f < n; f++) if (db[f] > top - 35) last = f;
+    size_t end = (last + 1) * frame, fade = std::min((size_t)(RATE / 50), end);
+    w.resize(end);
+    for (size_t i = 0; i < fade; i++) w[end - fade + i] *= 1.0f - (float)i / fade;
+    w.insert(w.end(), (size_t)(RATE * 0.08f), 0.0f);
+    return w;
+}
+
 // ---------------------------------------------------------------- reference clips
 // Decoded once to 24 kHz mono float and kept; sherpa caches the voice embedding it computes from them.
 static std::unordered_map<std::string, std::vector<float>> g_refs;
@@ -146,7 +185,7 @@ static const std::vector<float> *reference(const std::string &path, float tempo,
         if (st != g_refs.end()) return &st->second;
         const std::vector<float> *plain = reference(path, 1.0f, why);
         if (!plain) return nullptr;
-        std::vector<float> s = stretch(*plain, tempo);
+        std::vector<float> s = end_on_pause(stretch(*plain, tempo));
         return &(g_refs[path + key] = std::move(s));
     }
     auto it = g_refs.find(path);
@@ -166,7 +205,11 @@ static const std::vector<float> *reference(const std::string &path, float tempo,
     while (ma_decoder_read_pcm_frames(&dec, buf, 4096, &got) == MA_SUCCESS && got) pcm.insert(pcm.end(), buf, buf + got);
     ma_decoder_uninit(&dec);
     if (pcm.size() < RATE) { why = "reference shorter than 1 s: " + path; return nullptr; }
-    return &(g_refs[path] = std::move(pcm));
+    size_t before = pcm.size();
+    std::vector<float> ended = getenv("CVOICE_RAW_REFERENCE") ? std::move(pcm) : end_on_pause(std::move(pcm));   // (raw: tests only)
+    fprintf(stderr, "cvoice: reference %s: %.2f s -> %.2f s (ends on an 80 ms pause)\n", path.c_str(),
+            before / (double)RATE, ended.size() / (double)RATE);
+    return &(g_refs[path] = std::move(ended));
 }
 
 // ---------------------------------------------------------------- generation
@@ -213,6 +256,11 @@ int main(int argc, char **argv)
     float silence = (float)atof(arg(argc, argv, "--silence", "1.0").c_str());
     g_speed = (float)atof(arg(argc, argv, "--speed", "1.0").c_str());
     if (!(g_speed >= 0.5f && g_speed <= 2.0f)) g_speed = 1.0f;
+    // --seed N: the same sampling for every line (A/B tests across model files); the game passes none (random)
+    int seed = atoi(arg(argc, argv, "--seed", "-1").c_str());
+    char extra[96];
+    snprintf(extra, sizeof extra, "{\"max_reference_audio_len\": 11.0, \"seed\": %d}", seed);
+    if (getenv("CVOICE_EXTRA")) snprintf(extra, sizeof extra, "%s", getenv("CVOICE_EXTRA"));   // (tests only)
     std::string p[7]; const char *names[7] = {"lm_flow.int8.onnx", "lm_main.int8.onnx", "encoder.onnx", "decoder.int8.onnx",
                                               "text_conditioner.onnx", "vocab.json", "token_scores.json"};
     for (int i = 0; i < 7; i++) {
@@ -229,6 +277,7 @@ int main(int argc, char **argv)
     c.model.pocket.decoder = p[3].c_str(); c.model.pocket.text_conditioner = p[4].c_str();
     c.model.pocket.vocab_json = p[5].c_str(); c.model.pocket.token_scores_json = p[6].c_str();
     c.model.pocket.voice_embedding_cache_capacity = 32;
+    c.model.debug = getenv("CVOICE_DEBUG") ? 1 : 0;                  // sherpa's own log on stderr (tests only)
     c.model.num_threads = threads > 0 ? threads : 2; c.model.provider = "cpu"; c.max_num_sentences = sentences > 0 ? sentences : 1;
     const SherpaOnnxOfflineTts *tts = SherpaOnnxCreateOfflineTts(&c);
     if (!tts) { error(0, "cannot load the speech model from " + dir); return 1; }
@@ -250,7 +299,7 @@ int main(int argc, char **argv)
         SherpaOnnxGenerationConfig g; memset(&g, 0, sizeof g);
         g.reference_audio = ref->data(); g.reference_audio_len = (int32_t)ref->size(); g.reference_sample_rate = RATE;
         g.num_steps = steps; g.speed = 1.0f; g.silence_scale = silence;
-        g.extra = "{\"max_reference_audio_len\": 15.0, \"seed\": -1}";
+        g.extra = extra;   // max_reference_audio_len 11 s, a backstop: end_on_pause has already ended it on a pause by 10 s
         Ctx ctx{job.id, {}};
         const SherpaOnnxGeneratedAudio *a = SherpaOnnxOfflineTtsGenerateWithConfig(tts, job.text.c_str(), &g, on_audio, &ctx);
         if (a) SherpaOnnxDestroyOfflineTtsGeneratedAudio(a);
